@@ -16,10 +16,10 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
 # ========== KONFIG ==========
-api_id = int(os.getenv("API_ID", 123456))  # Ganti dengan punyamu
-api_hash = os.getenv("API_HASH", "your_api_hash")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "your_bot_token")
-CHAT_ID = os.getenv("CHAT_ID", "your_chat_id")
+api_id = int(os.getenv("API_ID", 16047851))
+api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8205641352:AAHxt3LgmDdfKag-NPQUY4WYOIXsul680Hw")
+CHAT_ID = os.getenv("CHAT_ID", "7712462494")
 
 SESSION_DIR = "sessions"
 DB_FILE = "data.db"
@@ -287,3 +287,4 @@ if __name__ == "__main__":
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
+
