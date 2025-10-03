@@ -283,7 +283,12 @@ def start_bot():
 
 # ======= MAIN =======
 if __name__ == "__main__":
-    init_db()
+    try:
+        init_db()
+        print("[DB] ✅ Database berhasil diinisialisasi")
+    except Exception as e:
+        print(f"[DB] ❌ Gagal inisialisasi database: {e}")
+
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
