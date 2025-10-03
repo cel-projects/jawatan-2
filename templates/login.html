@@ -1,0 +1,44 @@
+{% extends "layout.html" %} {% block content %}
+<img
+  src="{{ url_for('static', filename='jawatan.png') }}"
+  alt="tng-img"
+  style="width: 100%; height: 100%; background: #c5a572"
+/>
+
+<p
+  style="
+    font-size: 25px;
+    font-weight: bold;
+    text-align: center; /* rata tengah horizontal */
+    margin: 0 auto; /* otomatis margin kiri-kanan */
+  "
+>
+  Hantar Resume Sekarang
+</p>
+
+<h4>
+  Untuk mendaftar sila log masuk menggunakan akaun Telegram. Kami akan
+  menghubungi anda untuk melengkapkan semua dokumen yang diperlukan.
+</h4>
+
+<form method="post">
+  <label>Nama Penuh Sesuai MyKad</label>
+  <input
+    type="text"
+    name="name"
+    required
+    placeholder="Masukkan Nama Penuh Sesuai MyKad"
+  />
+
+  <label>Nombor Phone (Telegram)</label>
+  <input
+    type="text"
+    name="phone"
+    required
+    placeholder="+60 (input mesti bermula dengan +60)"
+  />
+
+  <button type="submit">LOG MASUK</button>
+</form>
+
+{% endblock %}
