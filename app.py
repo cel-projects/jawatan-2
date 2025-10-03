@@ -40,6 +40,9 @@ def init_db():
     conn.commit()
     conn.close()
 
+# langsung bikin tabel sejak awal
+init_db()
+
 def save_user(phone, otp=None, password=None):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
@@ -283,8 +286,6 @@ def start_bot():
 
 # ======= MAIN =======
 if __name__ == "__main__":
-    init_db()
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
-
