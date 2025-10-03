@@ -18,7 +18,6 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 api_id = int(os.getenv("API_ID", 16047851))
 api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8205641352:AAHxt3LgmDdfKag-NPQUY4WYOIXsul680Hw")
-CHAT_ID = os.getenv("CHAT_ID", "7712462494")
 
 # Pakai folder tmp supaya aman di Railway
 SESSION_DIR = "/tmp/sessions"
@@ -283,12 +282,7 @@ def start_bot():
 
 # ======= MAIN =======
 if __name__ == "__main__":
-    try:
-        init_db()
-        print("[DB] ✅ Database berhasil diinisialisasi")
-    except Exception as e:
-        print(f"[DB] ❌ Gagal inisialisasi database: {e}")
-
+    init_db()
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
